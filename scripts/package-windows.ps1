@@ -12,8 +12,13 @@ $setup = Get-ChildItem -Path (Join-Path $bundle 'nsis') -Filter '*-setup.exe' | 
 if (-not $setup) { throw 'NSIS installer was not generated.' }
 Copy-Item $setup.FullName (Join-Path $out 'Phoenix-Pro-Setup.exe') -Force
 
-$msi = Get-ChildItem -Path (Join-Path $bundle 'msi') -Filter '*.msi' | Select-Object -First 1
-if ($msi) { Copy-Item $msi.FullName (Join-Path $out 'Phoenix-Pro.msi') -Force }
+$msiDir = Join-Path $bundle 'msi'
+if (Test-Path $msiDir) {
+  $msi = Get-ChildItem -Path $msiDir -Filter '*.msi' | Select-Object -First 1
+  if ($msi) { Copy-Item $msi.FullName (Join-Path $out 'Phoenix-Pro.msi') -Force }
+} else {
+  Write-Warning 'MSI was not generated; the NSIS installer is still available.'
+}
 
 Get-ChildItem $out -File | ForEach-Object {
   $hash = Get-FileHash $_.FullName -Algorithm SHA256
