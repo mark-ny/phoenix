@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.projectphoenix.workstation",
+  "bundle": {
+    "licenseFile": "../LICENSE.txt",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "bundleVCRuntime": true,
+      "allowDowngrades": false,
+      "nsis": {
+        "installMode": "currentUser",
+        "startMenuFolder": "Phoenix Pro",
+        "displayLanguageSelector": false,
+        "languages": ["English"],
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    }
+  }
+}

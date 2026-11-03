@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Project Phoenix",
+  "version": "0.1.0",
+  "identifier": "com.projectphoenix.workstation",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Project Phoenix / Service workstation",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 1100,
+        "minHeight": 720,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' http://localhost:3000; connect-src ipc: http://ipc.localhost http://localhost:3000; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "createUpdaterArtifacts": false,
+    "shortDescription": "Authorized mobile-device servicing workstation",
+    "longDescription": "Project Phoenix is an evidence-first desktop workstation for authorized mobile-device servicing. Native device operations are enabled only after device-specific validation and security review.",
+    "copyright": "Project Phoenix contributors"
+  }
+}

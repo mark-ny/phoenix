@@ -1,0 +1,7 @@
+PROJECT PHOENIX PREVIEW LICENSE
+
+Copyright (c) Project Phoenix contributors.
+
+This preview build is provided for evaluation and internal testing only. It is not authorized for production device servicing, commercial sanitization, firmware deployment, or customer-data processing. The software is provided without warranties of any kind. Do not use it to bypass device security controls or service a device without documented authorization.
+
+A production commercial license must replace this preview license before public release.
