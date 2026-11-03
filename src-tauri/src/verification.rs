@@ -62,6 +62,9 @@ mod tests {
         fs::write(&path, b"phoenix").expect("write test file");
         let result = checksum_file(&path, "md5");
         fs::remove_file(&path).ok();
-        assert!(matches!(result, Err(VerificationError::UnsupportedAlgorithm(_))));
+        assert!(matches!(
+            result,
+            Err(VerificationError::UnsupportedAlgorithm(_))
+        ));
     }
 }

@@ -36,5 +36,16 @@
     "shortDescription": "Authorized mobile-device servicing workstation",
     "longDescription": "Project Phoenix is an evidence-first desktop workstation for authorized mobile-device servicing. Native device operations are enabled only after device-specific validation and security review.",
     "copyright": "Project Phoenix contributors"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_TAURI_PUBLIC_KEY",
+      "endpoints": [
+        "https://github.com/mark-ny/phoenix/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

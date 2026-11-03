@@ -2,5 +2,5 @@
   "identifier": "default",
   "description": "Default desktop permissions for the Phoenix workstation window.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "updater:default"]
 }

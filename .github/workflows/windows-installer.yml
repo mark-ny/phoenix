@@ -1,21 +1,21 @@
-name: Windows installer
+name: Phoenix Pro Windows release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-windows-installer:
+  build-windows-release:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - name: Checkout release source
+      - name: Checkout tagged source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -36,14 +36,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build installer artifacts
-        shell: pwsh
-        run: ./scripts/package-windows.ps1
-
-      - name: Upload installer assets to release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+      - name: Enable signed updater artifacts for this release
         shell: pwsh
         run: |
-          gh release upload $env:RELEASE_TAG release-output/* --clobber
+          $path = 'src-tauri/tauri.conf.json'
+          $config = Get-Content $path -Raw
+          $config = $config.Replace('"createUpdaterArtifacts": false', '"createUpdaterArtifacts": true')
+          Set-Content -Path $path -Value $config -NoNewline
+
+      - name: Build and publish signed release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Phoenix Pro ${{ github.ref_name }}
+          releaseBody: Signed Windows installer and updater artifacts for ${{ github.ref_name }}.
+          releaseDraft: false
+          prerelease: false
+          args: --config src-tauri/tauri.windows.conf.json

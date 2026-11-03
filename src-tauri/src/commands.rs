@@ -1,7 +1,19 @@
 use crate::{storage, verification};
 use serde::Serialize;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
+
+fn hidden_command(program: &str) -> Command {
+    #[cfg(not(windows))]
+    let command = Command::new(program);
+    #[cfg(windows)]
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    command
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,7 +61,7 @@ pub struct VerificationResult {
 }
 
 fn tool_available(tool: &str) -> bool {
-    Command::new(tool).arg("version").output().is_ok()
+    hidden_command(tool).arg("version").output().is_ok()
 }
 
 fn parse_adb(output: &str) -> Vec<ConnectedDevice> {
@@ -135,7 +147,7 @@ pub fn list_connected_devices() -> DeviceInventory {
     let mut devices = Vec::new();
     let mut warnings = Vec::new();
     if adb_available {
-        match Command::new("adb").args(["devices", "-l"]).output() {
+        match hidden_command("adb").args(["devices", "-l"]).output() {
             Ok(output) if output.status.success() => {
                 devices.extend(parse_adb(&String::from_utf8_lossy(&output.stdout)))
             }
@@ -146,7 +158,7 @@ pub fn list_connected_devices() -> DeviceInventory {
         warnings.push("ADB is not installed or not on PATH.".to_string());
     }
     if fastboot_available {
-        match Command::new("fastboot").arg("devices").output() {
+        match hidden_command("fastboot").arg("devices").output() {
             Ok(output) if output.status.success() => {
                 devices.extend(parse_fastboot(&String::from_utf8_lossy(&output.stdout)))
             }
@@ -197,6 +209,7 @@ pub fn verify_firmware_file(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             runtime_info,
             list_connected_devices,

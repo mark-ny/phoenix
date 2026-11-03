@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { audit, devices, firmware, jobs, type Device, type Firmware, type Job, type Provenance, type Status } from './data/fixtures';
 import { getRuntimeInfo, listConnectedDevices, type RuntimeInfo } from './native';
+import { installAvailableUpdate } from './updater';
 import type { NavItem, ViewKey } from './types';
 
 const navItems: NavItem[] = [
@@ -75,6 +76,11 @@ function App() {
     setNotice(`Imported ${file.name} for local review. SHA-256: ${checksum}. Signature status: not evaluated. No device deployment was attempted.`);
   };
 
+  const checkForUpdates = async () => {
+    setNotice('Checking for a signed Phoenix update…');
+    setNotice(await installAvailableUpdate());
+  };
+
   const go = (next: ViewKey) => {
     setView(next);
     setNotice('');
@@ -99,14 +105,13 @@ function App() {
               {navItems.filter((item) => item.group === group).map((item) => (
                 <button className={`nav-item ${view === item.key ? 'active' : ''}`} key={item.key} onClick={() => go(item.key)}>
                   <span className="nav-icon">{item.icon}</span><span>{item.label}</span>
-                  {item.key === 'devices' && <span className="nav-count">3</span>}
                 </button>
               ))}
             </div>
           ))}
         </nav>
         <div className="sidebar-footer">
-          <div className="connection-card"><div className="eyebrow">LOCAL ENGINE</div><div className="engine-line"><span className={`status-dot ${runtime ? 'live' : 'amber-dot'}`} /> {runtime ? 'Native runtime connected' : 'Browser preview / sample mode'}</div><div className="muted tiny">{runtime ? `${runtime.adbAvailable ? 'ADB' : 'No ADB'} · ${runtime.fastbootAvailable ? 'Fastboot' : 'No Fastboot'}` : 'No USB commands are active'}</div></div>
+          <div className="connection-card"><div className="eyebrow">LOCAL ENGINE</div><div className="engine-line"><span className={`status-dot ${runtime ? 'live' : 'amber-dot'}`} /> {runtime ? 'Native runtime connected' : 'Browser preview'}</div><div className="muted tiny">{runtime ? `${runtime.adbAvailable ? 'ADB' : 'No ADB'} · ${runtime.fastbootAvailable ? 'Fastboot' : 'No Fastboot'}` : 'USB tools are available in the desktop app'}</div></div>
           <div className="profile-row"><div className="avatar">MO</div><div><strong>M. Otieno</strong><span>Technician</span></div><button className="icon-button" aria-label="Open profile">•••</button></div>
         </div>
       </aside>
@@ -114,13 +119,13 @@ function App() {
       <main className="main-content">
         <header className="topbar">
           <div className="breadcrumbs"><span>PHOENIX</span><b>/</b><span className="current-crumb">{meta.title.toUpperCase()}</span></div>
-          <div className="topbar-actions"><div className="sync-status"><span className="status-dot live" /> Local workspace <span className="divider" /> <span className="muted">Synced just now</span></div><button className="icon-button bell" aria-label="Notifications">♢<span /></button><button className="help-button">? <span>Help</span></button></div>
+          <div className="topbar-actions"><div className="sync-status"><span className="status-dot live" /> Local workspace <span className="divider" /> <span className="muted">Synced just now</span></div><button className="button ghost" onClick={checkForUpdates}>Check for updates</button><button className="icon-button bell" aria-label="Notifications">♢<span /></button><button className="help-button">? <span>Help</span></button></div>
         </header>
 
         <div className="content-wrap">
-          <section className="page-heading"><div><div className="eyebrow amber">{meta.eyebrow}</div><h1>{meta.title}</h1><p>{meta.description}</p></div><div className="heading-actions"><span className="sample-badge"><span className="status-dot amber-dot" /> SAMPLE DATA</span>{view === 'dashboard' && <button className="button ghost" onClick={() => requestAction('Connect device')}>+ Connect device</button>}</div></section>
+          <section className="page-heading"><div><div className="eyebrow amber">{meta.eyebrow}</div><h1>{meta.title}</h1><p>{meta.description}</p></div><div className="heading-actions">{view !== 'dashboard' && <span className="sample-badge"><span className="status-dot amber-dot" /> SAMPLE DATA</span>}{view === 'dashboard' && <button className="button ghost" onClick={scanDevices}>+ Scan for devices</button>}</div></section>
           {notice && <div className="notice-banner"><span className="notice-mark">i</span><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}
-          {view === 'dashboard' && <Dashboard onNavigate={go} onAction={requestAction} />}
+          {view === 'dashboard' && <Dashboard onNavigate={go} onAction={requestAction} onScan={scanDevices} />}
           {view === 'devices' && <Devices selectedDevice={selectedDevice} selectedId={selectedId} setSelectedId={setSelectedId} query={query} setQuery={setQuery} onAction={requestAction} onScan={scanDevices} />}
           {view === 'firmware' && <FirmwareLibrary onAction={requestAction} onImport={importFirmware} />}
           {view === 'jobs' && <Jobs onAction={requestAction} />}
@@ -132,19 +137,19 @@ function App() {
   );
 }
 
-function Dashboard({ onNavigate, onAction }: { onNavigate: (view: ViewKey) => void; onAction: (label: string) => void }) {
+function Dashboard({ onNavigate, onAction, onScan }: { onNavigate: (view: ViewKey) => void; onAction: (label: string) => void; onScan: () => void }) {
   return <>
     <section className="metrics-grid">
-      <Metric label="CONNECTED DEVICES" value="3" delta="sample records" accent="amber" action={() => onNavigate('devices')} />
-      <Metric label="ACTIVE JOBS" value="01" delta="1 awaiting evidence" accent="blue" action={() => onNavigate('jobs')} />
-      <Metric label="COMPLETED TODAY" value="12" delta="sample history" accent="mint" action={() => onNavigate('jobs')} />
-      <Metric label="NEEDS ATTENTION" value="02" delta="review before action" accent="red" action={() => onNavigate('diagnostics')} />
+      <Metric label="CONNECTED DEVICES" value="0" delta="No live scan performed" accent="amber" action={onScan} />
+      <Metric label="ACTIVE JOBS" value="0" delta="No local jobs yet" accent="blue" action={() => onNavigate('jobs')} />
+      <Metric label="COMPLETED TODAY" value="0" delta="No completed jobs yet" accent="mint" action={() => onNavigate('jobs')} />
+      <Metric label="NEEDS ATTENTION" value="0" delta="No live evidence yet" accent="red" action={() => onNavigate('diagnostics')} />
     </section>
     <div className="dashboard-grid">
-      <section className="panel device-panel"><PanelHeader eyebrow="LIVE INVENTORY" title="Connected devices" action="View all" onClick={() => onNavigate('devices')} /><div className="device-list">{devices.map((device) => <DeviceRow key={device.id} device={device} />)}</div><div className="panel-footer"><span className="muted">Sample records shown · native USB monitor not enabled</span><button className="text-button" onClick={() => onAction('Native USB monitor')}>Why?</button></div></section>
-      <section className="panel readiness-panel"><PanelHeader eyebrow="SYSTEM READINESS" title="Safe to operate" /><div className="readiness-score"><div className="score-ring"><strong>82</strong><span>/100</span></div><div><strong>Preflight posture</strong><p>Good foundation. Two records need evidence before a technician can proceed.</p></div></div><div className="readiness-list"><Readiness label="Target identity" status="ready" detail="3 scoped devices" /><Readiness label="Native tools" status="planned" detail="ADB / Fastboot adapter" /><Readiness label="Destructive operations" status="blocked" detail="Disabled in MVP" /></div></section>
-      <section className="panel jobs-panel"><PanelHeader eyebrow="RECENT ACTIVITY" title="Service jobs" action="Open queue" onClick={() => onNavigate('jobs')} /><div className="job-list">{jobs.slice(0, 3).map((job) => <JobRow key={job.id} job={job} />)}</div></section>
-      <section className="panel audit-panel"><PanelHeader eyebrow="AUDIT TRAIL" title="Latest events" action="Export log" onClick={() => onAction('Diagnostic export')} /><div className="audit-list">{audit.map(([time, event, ref, who]) => <div className="audit-row" key={`${time}-${event}`}><time>{time}</time><div><strong>{event}</strong><span>{ref} · {who}</span></div><span className="audit-chevron">›</span></div>)}</div><div className="panel-footer"><span className="muted">Privacy-conscious log · no credentials or personal data</span></div></section>
+      <section className="panel device-panel"><PanelHeader eyebrow="LIVE INVENTORY" title="Connected devices" action="Scan now" onClick={onScan} /><div className="empty-state">No connected devices recorded. Run a scan to query ADB and Fastboot.</div><div className="panel-footer"><span className="muted">Only live native results appear here. No sample devices are shown.</span></div></section>
+      <section className="panel readiness-panel"><PanelHeader eyebrow="SYSTEM READINESS" title="Safe to operate" /><div className="readiness-score"><div className="score-ring"><strong>—</strong><span>/100</span></div><div><strong>Waiting for evidence</strong><p>Connect an authorized device and run a scan before Phoenix evaluates readiness.</p></div></div><div className="readiness-list"><Readiness label="Target identity" status="blocked" detail="No device selected" /><Readiness label="Native tools" status="planned" detail="Run a scan to check" /><Readiness label="Destructive operations" status="blocked" detail="Disabled" /></div></section>
+      <section className="panel jobs-panel"><PanelHeader eyebrow="RECENT ACTIVITY" title="Service jobs" action="Open queue" onClick={() => onNavigate('jobs')} /><div className="empty-state">No service jobs have been created.</div></section>
+      <section className="panel audit-panel"><PanelHeader eyebrow="AUDIT TRAIL" title="Latest events" action="Export log" onClick={() => onAction('Diagnostic export')} /><div className="empty-state">No audit events recorded.</div><div className="panel-footer"><span className="muted">Only events produced by real local actions will appear here.</span></div></section>
     </div>
   </>;
 }

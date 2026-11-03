@@ -11,4 +11,6 @@ The script builds the Tauri NSIS installer, copies it to `release-output/Phoenix
 
 The GitHub Actions workflow at `.github/workflows/windows-installer.yml` runs when a GitHub Release is published, builds on `windows-latest`, and uploads the installer and checksum files to that release.
 
+For one-click in-app updates triggered by pushed version tags, follow [the updater setup guide](./updater.md). It requires a Tauri signing key pair and two GitHub Actions secrets.
+
 This is packaging automation, not evidence that the product is ready for production. The installer has not been tested in this Linux sandbox on clean Windows machines. Before a production release, verify installation, launch, upgrade, uninstall/data preservation, WebView2 behavior, code signing, and USB/ADB/Fastboot operation on a documented Windows test matrix.
