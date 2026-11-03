@@ -9,7 +9,7 @@ export type RuntimeInfo = {
 };
 
 export type DeviceInventory = {
-  devices: unknown[];
+  devices: Array<{ serial: string; mode: string; authorization: string; manufacturer?: string; model?: string }>;
   source: string;
   nativeMonitorReady: boolean;
   adbAvailable: boolean;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { audit, devices, firmware, jobs, type Device, type Firmware, type Job, type Provenance, type Status } from './data/fixtures';
-import { getRuntimeInfo, type RuntimeInfo } from './native';
+import { getRuntimeInfo, listConnectedDevices, type RuntimeInfo } from './native';
 import type { NavItem, ViewKey } from './types';
 
 const navItems: NavItem[] = [
@@ -45,6 +45,35 @@ function App() {
   useEffect(() => {
     void getRuntimeInfo().then(setRuntime);
   }, []);
+
+  const scanDevices = async () => {
+    setNotice('Scanning with official ADB/Fastboot tools…');
+    const inventory = await listConnectedDevices();
+    if (!inventory) {
+      setNotice('Device scanning is available in the desktop app. Browser Preview cannot access USB tools.');
+      return;
+    }
+    setNotice(inventory.devices.length > 0
+      ? `Scan complete: ${inventory.devices.length} device${inventory.devices.length === 1 ? '' : 's'} detected (${inventory.devices.map((device) => `${device.serial} / ${device.mode}`).join(', ')}).`
+      : `Scan complete: no devices detected. ${inventory.warnings.join(' ')}`);
+  };
+
+  const runDiagnostics = async () => {
+    setNotice('Running non-destructive runtime and toolchain diagnostics…');
+    const [info, inventory] = await Promise.all([getRuntimeInfo(), listConnectedDevices()]);
+    if (!info || !inventory) {
+      setNotice('Diagnostics require the installed desktop app; Browser Preview cannot inspect the local toolchain.');
+      return;
+    }
+    setNotice(`Diagnostics complete: SQLite ready, ADB ${info.adbAvailable ? 'available' : 'missing'}, Fastboot ${info.fastbootAvailable ? 'available' : 'missing'}, ${inventory.devices.length} device${inventory.devices.length === 1 ? '' : 's'} visible. No device mutation was attempted.`);
+  };
+
+  const importFirmware = async (file: File) => {
+    setNotice(`Verifying ${file.name}…`);
+    const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+    const checksum = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    setNotice(`Imported ${file.name} for local review. SHA-256: ${checksum}. Signature status: not evaluated. No device deployment was attempted.`);
+  };
 
   const go = (next: ViewKey) => {
     setView(next);
@@ -92,10 +121,10 @@ function App() {
           <section className="page-heading"><div><div className="eyebrow amber">{meta.eyebrow}</div><h1>{meta.title}</h1><p>{meta.description}</p></div><div className="heading-actions"><span className="sample-badge"><span className="status-dot amber-dot" /> SAMPLE DATA</span>{view === 'dashboard' && <button className="button ghost" onClick={() => requestAction('Connect device')}>+ Connect device</button>}</div></section>
           {notice && <div className="notice-banner"><span className="notice-mark">i</span><span>{notice}</span><button onClick={() => setNotice('')}>×</button></div>}
           {view === 'dashboard' && <Dashboard onNavigate={go} onAction={requestAction} />}
-          {view === 'devices' && <Devices selectedDevice={selectedDevice} selectedId={selectedId} setSelectedId={setSelectedId} query={query} setQuery={setQuery} onAction={requestAction} />}
-          {view === 'firmware' && <FirmwareLibrary onAction={requestAction} />}
+          {view === 'devices' && <Devices selectedDevice={selectedDevice} selectedId={selectedId} setSelectedId={setSelectedId} query={query} setQuery={setQuery} onAction={requestAction} onScan={scanDevices} />}
+          {view === 'firmware' && <FirmwareLibrary onAction={requestAction} onImport={importFirmware} />}
           {view === 'jobs' && <Jobs onAction={requestAction} />}
-          {view === 'diagnostics' && <Diagnostics onAction={requestAction} />}
+          {view === 'diagnostics' && <Diagnostics onAction={requestAction} onRun={runDiagnostics} />}
           {(['eraser', 'recovery', 'os-manager', 'certificates', 'customers', 'subscription', 'settings'] as ViewKey[]).includes(view) && <PlaceholderView view={view} onAction={requestAction} />}
         </div>
       </main>
@@ -120,26 +149,26 @@ function Dashboard({ onNavigate, onAction }: { onNavigate: (view: ViewKey) => vo
   </>;
 }
 
-function Devices({ selectedDevice, selectedId, setSelectedId, query, setQuery, onAction }: { selectedDevice: Device; selectedId: string; setSelectedId: (id: string) => void; query: string; setQuery: (query: string) => void; onAction: (label: string) => void }) {
+function Devices({ selectedDevice, selectedId, setSelectedId, query, setQuery, onAction, onScan }: { selectedDevice: Device; selectedId: string; setSelectedId: (id: string) => void; query: string; setQuery: (query: string) => void; onAction: (label: string) => void; onScan: () => void }) {
   const filtered = devices.filter((device) => `${device.manufacturer} ${device.model} ${device.serial}`.toLowerCase().includes(query.toLowerCase()));
-  return <div className="devices-layout"><section className="panel devices-index"><div className="toolbar"><div className="search-field"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search devices, serials, codenames" /></div><button className="button ghost" onClick={() => onAction('Scan for devices')}>Scan now</button></div><div className="list-header"><span>DEVICE / IDENTITY</span><span>MODE</span><span>STATUS</span></div>{filtered.map((device) => <button className={`device-index-row ${selectedId === device.id ? 'selected' : ''}`} key={device.id} onClick={() => setSelectedId(device.id)}><div className="device-leading"><div className="device-glyph">{device.manufacturer.slice(0, 1)}</div><div><strong>{device.manufacturer} {device.model}</strong><span>{device.id} · {device.codename}</span></div></div><div><strong>{device.mode}</strong><span>{device.connection}</span></div><div><StatusPill status={device.status} /></div></button>)}{filtered.length === 0 && <div className="empty-state">No sample devices match that search.</div>}<div className="panel-footer"><span className="muted">Identity binding is required before any future operation.</span></div></section><DeviceDetail device={selectedDevice} onAction={onAction} /></div>;
+  return <div className="devices-layout"><section className="panel devices-index"><div className="toolbar"><div className="search-field"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search devices, serials, codenames" /></div><button className="button ghost" onClick={onScan}>Scan now</button></div><div className="list-header"><span>DEVICE / IDENTITY</span><span>MODE</span><span>STATUS</span></div>{filtered.map((device) => <button className={`device-index-row ${selectedId === device.id ? 'selected' : ''}`} key={device.id} onClick={() => setSelectedId(device.id)}><div className="device-leading"><div className="device-glyph">{device.manufacturer.slice(0, 1)}</div><div><strong>{device.manufacturer} {device.model}</strong><span>{device.id} · {device.codename}</span></div></div><div><strong>{device.mode}</strong><span>{device.connection}</span></div><div><StatusPill status={device.status} /></div></button>)}{filtered.length === 0 && <div className="empty-state">No sample devices match that search.</div>}<div className="panel-footer"><span className="muted">Identity binding is required before any future operation.</span></div></section><DeviceDetail device={selectedDevice} onAction={onAction} /></div>;
 }
 
 function DeviceDetail({ device, onAction }: { device: Device; onAction: (label: string) => void }) {
   return <section className="device-detail"><div className="detail-hero"><div className="hero-device-icon">{device.manufacturer.slice(0, 1)}</div><div><div className="eyebrow amber">{device.id} · {device.lastSeen}</div><h2>{device.manufacturer} {device.model}</h2><div className="hero-subline"><span>{device.codename}</span><span className="dot-separator" /> <span>{device.mode}</span><ProvenanceChip value={device.provenance} /></div></div><button className="icon-button detail-menu">•••</button></div><div className="detail-alert"><span className="alert-icon">!</span><div><strong>Sample record — not a connected device</strong><p>{device.note}</p></div></div><div className="fact-section"><div className="section-title-row"><div><div className="eyebrow">IDENTITY & CONNECTION</div><h3>What Phoenix knows</h3></div><span className="confidence-tag">{device.confidence}</span></div><div className="facts-grid"><Fact label="Serial number" value={device.serial} mono provenance={device.provenance} /><Fact label="Connection" value={device.connection} provenance={device.provenance} /><Fact label="Android version" value={device.android} provenance={device.android === 'Unavailable' ? 'UNAVAILABLE' : device.provenance} /><Fact label="Architecture" value={device.architecture} provenance={device.architecture === 'Unavailable' ? 'UNAVAILABLE' : device.provenance} /><Fact label="Storage" value={device.storage} provenance={device.storage === 'Unavailable' ? 'UNAVAILABLE' : device.provenance} /><Fact label="Battery" value={device.battery} provenance={device.battery === 'Unavailable' ? 'UNAVAILABLE' : device.provenance} /></div></div><div className="fact-section"><div className="section-title-row"><div><div className="eyebrow">PROTOCOL POSTURE</div><h3>Available paths</h3></div></div><div className="protocol-row"><Protocol label="ADB" value={device.adb} state={device.adb === 'Authorized' ? 'ready' : 'blocked'} /><Protocol label="Fastboot" value={device.mode.includes('Fastboot') ? 'Detected' : 'Not detected'} state={device.mode.includes('Fastboot') ? 'ready' : 'planned'} /><Protocol label="Bootloader" value={device.bootloader} state={device.bootloader === 'Unavailable' ? 'blocked' : 'planned'} /></div></div><div className="detail-actions"><button className="button primary" onClick={() => onAction('Device diagnostics')}>Run diagnostics <span>→</span></button><button className="button ghost" onClick={() => onAction('Device action menu')}>View compatible operations</button></div><div className="detail-note"><span>i</span><p>Operations only appear after a compatibility profile confirms the exact model, mode, prerequisites, and evidence path. Security controls are never bypassed.</p></div></section>;
 }
 
-function FirmwareLibrary({ onAction }: { onAction: (label: string) => void }) {
-  return <div className="stack-layout"><section className="panel"><div className="toolbar"><div><div className="eyebrow">CATALOGUE STATUS</div><h3>Official image records</h3></div><button className="button primary" onClick={() => onAction('Import firmware')}>+ Import image</button></div><div className="firmware-table"><div className="table-header"><span>IMAGE / DEVICE</span><span>INTEGRITY</span><span>COMPATIBILITY</span><span>RELEASED</span></div>{firmware.map((item) => <FirmwareRow key={item.name} item={item} />)}</div><div className="panel-footer"><span className="muted">Metadata only in MVP · no file download or flash operation</span><button className="text-button" onClick={() => onAction('Firmware verification')}>Verification policy ↗</button></div></section><section className="two-column"><InfoCard eyebrow="SOURCE DISCIPLINE" title="Official before convenient" body="Every image record keeps its source URL, release version, publication date, checksum state, and signature state. The UI never silently substitutes a different model or variant." /><InfoCard eyebrow="NEXT NATIVE MILESTONE" title="Integrity before deployment" body="The future adapter must verify SHA-256/SHA-512 checksums and published signatures before a device-specific preflight can even begin." /></section></div>;
+function FirmwareLibrary({ onAction, onImport }: { onAction: (label: string) => void; onImport: (file: File) => void }) {
+  return <div className="stack-layout"><section className="panel"><div className="toolbar"><div><div className="eyebrow">CATALOGUE STATUS</div><h3>Official image records</h3></div><label className="button primary">+ Import image<input type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) onImport(file); event.currentTarget.value = ''; }} /></label></div><div className="firmware-table"><div className="table-header"><span>IMAGE / DEVICE</span><span>INTEGRITY</span><span>COMPATIBILITY</span><span>RELEASED</span></div>{firmware.map((item) => <FirmwareRow key={item.name} item={item} />)}</div><div className="panel-footer"><span className="muted">Local SHA-256 verification is active · signature evaluation and deployment remain disabled</span><button className="text-button" onClick={() => onAction('Firmware verification')}>Verification policy ↗</button></div></section><section className="two-column"><InfoCard eyebrow="SOURCE DISCIPLINE" title="Official before convenient" body="Every image record keeps its source URL, release version, publication date, checksum state, and signature state. The UI never silently substitutes a different model or variant." /><InfoCard eyebrow="SAFE BOUNDARY" title="Integrity before deployment" body="Phoenix can now hash a local file for review. It still will not flash or deploy an image, and signatures are explicitly marked as not evaluated." /></section></div>;
 }
 
 function Jobs({ onAction }: { onAction: (label: string) => void }) {
   return <div className="stack-layout"><section className="panel"><div className="toolbar"><div><div className="eyebrow">LOCAL HISTORY</div><h3>Service job queue</h3></div><div className="toolbar-actions"><button className="button ghost" onClick={() => onAction('Export jobs')}>Export</button><button className="button primary" onClick={() => onAction('Create service job')}>+ New job</button></div></div><div className="job-table"><div className="table-header job-cols"><span>JOB</span><span>WORKFLOW</span><span>DEVICE</span><span>STATUS</span><span>UPDATED</span></div>{jobs.map((job) => <div className="job-table-row job-cols" key={job.id}><div><strong>{job.id}</strong><span>{job.operator}</span></div><div><strong>{job.type}</strong><span>{job.detail}</span></div><div><strong>{job.device}</strong><span>Identity bound</span></div><div><StatusPill status={job.status} /><div className="mini-progress"><span style={{ width: `${job.progress}%` }} /></div></div><time>{job.timestamp}</time></div>)}</div></section><div className="notice-panel"><div className="notice-mark">i</div><div><strong>Jobs are evidence containers, not command runners.</strong><p>A job can record intent and results, but this MVP cannot mutate a connected device. Future destructive steps must be separately confirmed and verified.</p></div></div></div>;
 }
 
-function Diagnostics({ onAction }: { onAction: (label: string) => void }) {
+function Diagnostics({ onAction, onRun }: { onAction: (label: string) => void; onRun: () => void }) {
   const tests = [['Identity snapshot', 'Automated', 'ready', 'Uses the connection profile and known catalogue evidence.'], ['ADB authorization', 'Automated when exposed', 'attention', 'The sample Pixel is authorized; other modes may not expose this state.'], ['Display / camera / sensors', 'Technician-assisted', 'planned', 'Requires a human inspection path and recorded result.'], ['Battery health', 'Unavailable in browser MVP', 'blocked', 'Do not infer hardware health from a missing protocol.']];
-  return <div className="stack-layout"><section className="panel"><div className="toolbar"><div><div className="eyebrow">EVIDENCE COLLECTION</div><h3>Diagnostic plan</h3></div><button className="button primary" onClick={() => onAction('Run diagnostics')}>Run selected tests</button></div><div className="diagnostic-list">{tests.map(([name, mode, state, detail]) => <div className="diagnostic-row" key={name}><div className="check-box">{state === 'ready' ? '✓' : ''}</div><div className="diagnostic-copy"><strong>{name}</strong><span>{mode}</span><p>{detail}</p></div><StatusPill status={state as Status} /></div>)}</div><div className="panel-footer"><span className="muted">No result is created until an evidence-producing method exists.</span><button className="text-button" onClick={() => onAction('Diagnostic export')}>Export diagnostic bundle</button></div></section><section className="two-column"><InfoCard eyebrow="GRADING" title="Condition, not guesswork" body="Refurbishment grading should combine reliable automated evidence with a technician's recorded inspection. Missing data stays missing." /><InfoCard eyebrow="PRIVACY" title="Keep the log useful" body="Logs capture operation state and evidence references, not credentials, tokens, private keys, or unnecessary customer data." /></section></div>;
+  return <div className="stack-layout"><section className="panel"><div className="toolbar"><div><div className="eyebrow">EVIDENCE COLLECTION</div><h3>Diagnostic plan</h3></div><button className="button primary" onClick={onRun}>Run selected tests</button></div><div className="diagnostic-list">{tests.map(([name, mode, state, detail]) => <div className="diagnostic-row" key={name}><div className="check-box">{state === 'ready' ? '✓' : ''}</div><div className="diagnostic-copy"><strong>{name}</strong><span>{mode}</span><p>{detail}</p></div><StatusPill status={state as Status} /></div>)}</div><div className="panel-footer"><span className="muted">Runtime/toolchain checks produce an in-app result; physical inspection remains technician-assisted.</span><button className="text-button" onClick={() => onAction('Diagnostic export')}>Export diagnostic bundle</button></div></section><section className="two-column"><InfoCard eyebrow="GRADING" title="Condition, not guesswork" body="Refurbishment grading should combine reliable automated evidence with a technician's recorded inspection. Missing data stays missing." /><InfoCard eyebrow="PRIVACY" title="Keep the log useful" body="Logs capture operation state and evidence references, not credentials, tokens, private keys, or unnecessary customer data." /></section></div>;
 }
 
 function PlaceholderView({ view, onAction }: { view: ViewKey; onAction: (label: string) => void }) {
