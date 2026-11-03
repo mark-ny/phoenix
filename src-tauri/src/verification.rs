@@ -49,7 +49,7 @@ mod tests {
 
     #[test]
     fn computes_sha256_for_local_file() {
-        let path = std::env::temp_dir().join("phoenix-checksum-test.txt");
+        let path = std::env::temp_dir().join("phoenix-checksum-sha256-test.txt");
         fs::write(&path, b"phoenix").expect("write test file");
         let checksum = checksum_file(&path, "sha256").expect("checksum file");
         fs::remove_file(&path).ok();
@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_algorithm() {
-        let path = std::env::temp_dir().join("phoenix-checksum-test.txt");
+        let path = std::env::temp_dir().join("phoenix-checksum-md5-test.txt");
         fs::write(&path, b"phoenix").expect("write test file");
         let result = checksum_file(&path, "md5");
         fs::remove_file(&path).ok();

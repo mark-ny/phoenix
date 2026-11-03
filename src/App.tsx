@@ -1,8 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { audit, devices, firmware, jobs, type Device, type Firmware, type Job, type Provenance, type Status } from './data/fixtures';
-import { getRuntimeInfo, listConnectedDevices, type RuntimeInfo } from './native';
+import { approveApprovalRequest, configureAdminPin, createApprovalRequest as createNativeApprovalRequest, getRuntimeInfo, isDesktopShell, listConnectedDevices, type RuntimeInfo } from './native';
 import { installAvailableUpdate } from './updater';
 import type { NavItem, ViewKey } from './types';
+
+type OsPreflightResult = {
+  runtime: RuntimeInfo;
+  deviceCount: number;
+  warnings: string[];
+};
+
+type ApprovalRequest = {
+  customerName: string;
+  deviceSerial: string;
+  operation: 'Data erasure' | 'Device recovery';
+  consentAccepted: boolean;
+  signature: string;
+  requestId: string;
+  status: 'draft' | 'pending_admin_review';
+  licenseToken?: string;
+  licenseExpiresAt?: string;
+};
 
 const navItems: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: '⌂', group: 'work' },
@@ -40,6 +58,8 @@ function App() {
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [runtime, setRuntime] = useState<RuntimeInfo | null>(null);
+  const [osPreflight, setOsPreflight] = useState<OsPreflightResult | null>(null);
+  const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
   const selectedDevice = devices.find((device) => device.id === selectedId) ?? devices[0];
   const meta = viewMeta[view];
 
@@ -79,6 +99,24 @@ function App() {
   const checkForUpdates = async () => {
     setNotice('Checking for a signed Phoenix update…');
     setNotice(await installAvailableUpdate());
+  };
+
+  const runOsPreflight = async () => {
+    setNotice('Running OS Manager preflight…');
+    const [info, inventory] = await Promise.all([getRuntimeInfo(), listConnectedDevices()]);
+    if (!info || !inventory) {
+      setNotice('OS Manager preflight requires the installed desktop app.');
+      return;
+    }
+    setOsPreflight({ runtime: info, deviceCount: inventory.devices.length, warnings: inventory.warnings });
+    setNotice(`OS Manager preflight complete: ${inventory.devices.length} device${inventory.devices.length === 1 ? '' : 's'} visible. No OS operation was started.`);
+  };
+
+  const createApprovalRequest = async (request: Omit<ApprovalRequest, 'requestId' | 'status'>) => {
+    const native = await createNativeApprovalRequest({ ...request, consentText: 'Customer accepted the Phoenix privacy notice, data-loss warning, and exact requested operation.' });
+    const requestId = native?.id ?? `APR-${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}`;
+    setApprovalRequest({ ...request, requestId, status: 'pending_admin_review' });
+    setNotice(`${native ? 'SQLite-backed approval request' : 'Browser-only approval request'} ${requestId} created. It is locked pending admin review; no device command was sent.`);
   };
 
   const go = (next: ViewKey) => {
@@ -130,7 +168,10 @@ function App() {
           {view === 'firmware' && <FirmwareLibrary onAction={requestAction} onImport={importFirmware} />}
           {view === 'jobs' && <Jobs onAction={requestAction} />}
           {view === 'diagnostics' && <Diagnostics onAction={requestAction} onRun={runDiagnostics} />}
-          {(['eraser', 'recovery', 'os-manager', 'certificates', 'customers', 'subscription', 'settings'] as ViewKey[]).includes(view) && <PlaceholderView view={view} onAction={requestAction} />}
+          {view === 'os-manager' && <OsManager onRun={runOsPreflight} result={osPreflight} />}
+          {view === 'eraser' && <ApprovalGate operation="Data erasure" request={approvalRequest} onSubmit={createApprovalRequest} />}
+          {view === 'recovery' && <ApprovalGate operation="Device recovery" request={approvalRequest} onSubmit={createApprovalRequest} />}
+          {(['certificates', 'customers', 'subscription', 'settings'] as ViewKey[]).includes(view) && <PlaceholderView view={view} onAction={requestAction} />}
         </div>
       </main>
     </div>
@@ -169,6 +210,64 @@ function FirmwareLibrary({ onAction, onImport }: { onAction: (label: string) => 
 
 function Jobs({ onAction }: { onAction: (label: string) => void }) {
   return <div className="stack-layout"><section className="panel"><div className="toolbar"><div><div className="eyebrow">LOCAL HISTORY</div><h3>Service job queue</h3></div><div className="toolbar-actions"><button className="button ghost" onClick={() => onAction('Export jobs')}>Export</button><button className="button primary" onClick={() => onAction('Create service job')}>+ New job</button></div></div><div className="job-table"><div className="table-header job-cols"><span>JOB</span><span>WORKFLOW</span><span>DEVICE</span><span>STATUS</span><span>UPDATED</span></div>{jobs.map((job) => <div className="job-table-row job-cols" key={job.id}><div><strong>{job.id}</strong><span>{job.operator}</span></div><div><strong>{job.type}</strong><span>{job.detail}</span></div><div><strong>{job.device}</strong><span>Identity bound</span></div><div><StatusPill status={job.status} /><div className="mini-progress"><span style={{ width: `${job.progress}%` }} /></div></div><time>{job.timestamp}</time></div>)}</div></section><div className="notice-panel"><div className="notice-mark">i</div><div><strong>Jobs are evidence containers, not command runners.</strong><p>A job can record intent and results, but this MVP cannot mutate a connected device. Future destructive steps must be separately confirmed and verified.</p></div></div></div>;
+}
+
+function ApprovalGate({ operation, request, onSubmit }: { operation: ApprovalRequest['operation']; request: ApprovalRequest | null; onSubmit: (request: Omit<ApprovalRequest, 'requestId' | 'status'>) => Promise<void> }) {
+  const [customerName, setCustomerName] = useState('');
+  const [deviceSerial, setDeviceSerial] = useState('');
+  const [signature, setSignature] = useState('');
+  const [consentAccepted, setConsentAccepted] = useState(false);
+  const [adminPin, setAdminPin] = useState('');
+  const [licenseMessage, setLicenseMessage] = useState('');
+  const canSubmit = customerName.trim().length >= 2 && deviceSerial.trim().length >= 3 && signature.trim().length >= 2 && consentAccepted;
+  const exportRequest = () => {
+    if (!request) return;
+    const blob = new Blob([JSON.stringify({ ...request, adminEmail: 'markomodho@gmail.com', licensePolicy: 'One license per job and device; expires after 7 days.' }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${request.requestId}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const approveRequest = async () => {
+    if (!request || !isDesktopShell()) {
+      setLicenseMessage('Administrator approval requires the installed desktop app.');
+      return;
+    }
+    try {
+      const license = await approveApprovalRequest(request.requestId, adminPin);
+      if (!license) throw new Error('No license was returned.');
+      setLicenseMessage(`Approved. Signed license ${license.id} is valid until ${new Date(Number(license.expiresAt) * 1000).toLocaleString()}. Protected device mutation remains disabled pending native adapter testing.`);
+    } catch (error) {
+      setLicenseMessage(error instanceof Error ? error.message : 'Administrator approval failed.');
+    }
+  };
+  const configureLocalAdmin = async () => {
+    if (!isDesktopShell()) {
+      setLicenseMessage('Administrator setup requires the installed desktop app.');
+      return;
+    }
+    try {
+      await configureAdminPin(adminPin);
+      setLicenseMessage('Local administrator PIN configured. Keep it private; it is required to issue or revoke licenses.');
+    } catch (error) {
+      setLicenseMessage(error instanceof Error ? error.message : 'Administrator setup failed.');
+    }
+  };
+  return <div className="stack-layout"><section className="panel"><div className="toolbar"><div><div className="eyebrow">CUSTOMER AUTHORIZATION REQUIRED</div><h3>{operation} approval gate</h3></div><span className="status-pill blocked">LOCKED</span></div><div className="notice-panel"><div className="notice-mark">!</div><div><strong>No device operation is available yet.</strong><p>The customer must authorize the exact job, Phoenix must submit it for admin review, and a device-bound seven-day license must be granted before any powerful operation can be enabled.</p></div></div><div className="form-grid"><label>Customer full name<input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Enter customer name" /></label><label>Device serial / identifier<input value={deviceSerial} onChange={(event) => setDeviceSerial(event.target.value)} placeholder="Enter verified device serial" /></label><label className="full-width">Customer signature (typed acknowledgement)<input value={signature} onChange={(event) => setSignature(event.target.value)} placeholder="Customer types their legal name" /></label></div><label className="consent-check"><input type="checkbox" checked={consentAccepted} onChange={(event) => setConsentAccepted(event.target.checked)} /><span>I confirm the customer reviewed and accepted the privacy notice, data-loss warning, and exact requested operation. I will retain the signed authorization according to applicable law.</span></label><div className="panel-footer"><span className="muted">Automatic Gmail delivery is not connected in this build. Export the request for admin review.</span><button className="button primary" disabled={!canSubmit} onClick={() => void onSubmit({ customerName, deviceSerial, operation, consentAccepted, signature })}>Create admin approval request</button></div></section>{request && <section className="panel"><div className="eyebrow">PENDING REVIEW</div><h3>{request.requestId}</h3><div className="approval-summary"><div><span>Operation</span><strong>{request.operation}</strong></div><div><span>Customer</span><strong>{request.customerName}</strong></div><div><span>Device</span><strong>{request.deviceSerial}</strong></div><div><span>State</span><strong>Pending admin review</strong></div></div><div className="form-grid"><label className="full-width">Administrator PIN<input type="password" value={adminPin} onChange={(event) => setAdminPin(event.target.value)} placeholder="Desktop-only administrator credential" /></label></div><div className="panel-footer"><span className="muted">Admin: markomodho@gmail.com · License: one job/device · 7 days</span><div className="toolbar-actions"><button className="button ghost" onClick={exportRequest}>Export request</button><button className="button ghost" disabled={!adminPin.trim()} onClick={() => void configureLocalAdmin()}>Configure admin PIN</button><button className="button primary" disabled={!adminPin.trim()} onClick={() => void approveRequest()}>Approve and issue license</button></div></div>{licenseMessage && <div className="detail-note"><span>i</span><p>{licenseMessage}</p></div>}</section>}</div>;
+}
+
+function OsManager({ onRun, result }: { onRun: () => void; result: OsPreflightResult | null }) {
+  const checks: Array<[string, Status, string]> = result ? [
+    ['Native runtime', 'ready', result.runtime.platform],
+    ['ADB tool', result.runtime.adbAvailable ? 'ready' : 'blocked', result.runtime.adbAvailable ? 'Available on PATH' : 'Not installed or not on PATH'],
+    ['Fastboot tool', result.runtime.fastbootAvailable ? 'ready' : 'blocked', result.runtime.fastbootAvailable ? 'Available on PATH' : 'Not installed or not on PATH'],
+    ['Device visibility', result.deviceCount > 0 ? 'ready' : 'attention', `${result.deviceCount} device${result.deviceCount === 1 ? '' : 's'} visible`],
+    ['Image integrity', 'planned', 'Import a local image to calculate SHA-256'],
+    ['Deployment guardrail', 'blocked', 'Flashing, erasure, unlock, and bypass remain disabled'],
+  ] : [];
+  return <div className="stack-layout"><section className="panel"><div className="toolbar"><div><div className="eyebrow">SAFE PRE-FLIGHT</div><h3>OS Manager readiness</h3></div><button className="button primary" onClick={onRun}>Open preflight checklist</button></div>{result ? <div className="diagnostic-list">{checks.map(([name, state, detail]) => <div className="diagnostic-row" key={name}><div className="check-box">{state === 'ready' ? '✓' : ''}</div><div className="diagnostic-copy"><strong>{name}</strong><span>Non-destructive check</span><p>{detail}</p></div><StatusPill status={state as Status} /></div>)}</div> : <div className="empty-state">No preflight has been run. Phoenix will check the local runtime and official platform tools without sending an OS command to a device.</div>}<div className="panel-footer"><span className="muted">No flashing, erasure, bootloader unlock, or security bypass is available from this screen.</span></div></section><section className="two-column"><InfoCard eyebrow="IMAGE POLICY" title="Integrity before deployment" body="Select a local image in Firmware Library to calculate its SHA-256 checksum. Signature evaluation and deployment remain separate guarded steps." /><InfoCard eyebrow="RECOVERY" title="Stop on missing evidence" body="A blocked or incomplete preflight never attempts a device mutation. Resolve identity, mode, tool, and integrity evidence first." /></section></div>;
 }
 
 function Diagnostics({ onAction, onRun }: { onAction: (label: string) => void; onRun: () => void }) {

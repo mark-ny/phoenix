@@ -37,14 +37,17 @@
 ## Safe operation guardrails
 
 - [x] Provide staged-looking Data Eraser, Device Recovery, and OS Manager workflows that identify an exact sample target, explain data-loss/security consequences, show prerequisites, and stop with a clear MVP safety boundary.
+- [x] Add a customer-consent gate for Data Eraser and Device Recovery that captures customer name, exact device identifier, typed acknowledgement, explicit consent, creates a pending-admin-review request ID, and keeps the operation locked. Provide JSON export addressed to `markomodho@gmail.com` while automatic email delivery is not connected.
 - [x] Do not enable commercial destructive erasure, firmware flashing, bootloader unlocking, password recovery, universal lock-screen bypasses, FRP bypass, Activation Lock bypass, credential extraction, or exploit-based access.
 - [ ] Implement native operation state machines with stable device identity binding, revalidation, safe transitions, cancellation/timeout handling, structured logs, disconnect handling, and verified completion before activation.
+- [x] Implement the testable local approval backend: SQLite approval requests, administrator PIN authentication, Ed25519-signed one-device/job-bound licenses, seven-day expiry validation, revocation, and audit events. The signing key is local-test infrastructure and must move to an offline/admin service before production use.
 
 ## Jobs, evidence, and business surfaces
 
 - [x] Show sample service jobs, operation history, certificates/reporting status, diagnostics, audit history, customer records, workstation/subscription status, and settings as truthful MVP surfaces.
 - [x] Provide a diagnostic-export affordance and explain when evidence is sample or unavailable.
-- [ ] Implement local SQLite persistence, configurable retention, audit-log storage, PDF service reports, verified-sanitization certificates, and role-based organization separation.
+- [ ] Implement configurable retention, PDF service reports, verified-sanitization certificates, and role-based organization separation; approval records and license/audit records now persist locally in SQLite.
+- [ ] Connect approval-request export to authenticated Gmail/Outlook delivery or an equivalent backend mail relay; do not place mail credentials in the client.
 - [ ] Implement cloud authentication, organization membership, subscriptions, workstation licensing, offline grace policy, and audited administration after local MVP validation.
 
 ## Documentation and engineering hygiene

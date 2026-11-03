@@ -68,6 +68,40 @@ pub fn initialize() -> Result<PathBuf> {
            retention_until TEXT,
            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
          );
+         CREATE TABLE IF NOT EXISTS approval_requests (
+           id TEXT PRIMARY KEY,
+           job_id TEXT,
+           customer_name TEXT NOT NULL,
+           device_serial TEXT NOT NULL,
+           operation TEXT NOT NULL,
+           consent_text TEXT NOT NULL,
+           signature TEXT NOT NULL,
+           status TEXT NOT NULL,
+           payload_json TEXT NOT NULL,
+           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           reviewed_at TEXT,
+           reviewer TEXT,
+           rejection_reason TEXT
+         );
+         CREATE TABLE IF NOT EXISTS licenses (
+           id TEXT PRIMARY KEY,
+           request_id TEXT NOT NULL REFERENCES approval_requests(id),
+           job_id TEXT,
+           device_serial TEXT NOT NULL,
+           operation TEXT NOT NULL,
+           issued_at TEXT NOT NULL,
+           expires_at TEXT NOT NULL,
+           token TEXT NOT NULL UNIQUE,
+           public_key TEXT NOT NULL,
+           revoked_at TEXT,
+           revoked_reason TEXT
+         );
+         CREATE TABLE IF NOT EXISTS admin_credentials (
+           id INTEGER PRIMARY KEY CHECK (id = 1),
+           salt TEXT NOT NULL,
+           password_hash TEXT NOT NULL,
+           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+         );
          CREATE TABLE IF NOT EXISTS settings (
            key TEXT PRIMARY KEY,
            value TEXT NOT NULL,

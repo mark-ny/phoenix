@@ -101,3 +101,7 @@ The implemented slice is acceptable when:
 4. Start the Preview service on the configured port and verify the route manifest endpoint.
 5. Review the final source against this plan and TODO without inventing physical-device evidence.
 6. Save a checkpoint once the implementation is buildable and documented.
+
+## Approval-gate increment
+
+The protected Data Eraser and Device Recovery views now include a customer-consent form that captures the customer name, exact device identifier, typed acknowledgement, and explicit consent checkbox. In the installed desktop app, submission persists to SQLite; a local administrator PIN can approve a pending request and issue an Ed25519-signed license bound to the request, device, job, and operation for seven days. Validation, revocation, and audit events are implemented and tested. Requests can be exported as JSON for review by `markomodho@gmail.com`. Automatic Gmail/Outlook delivery and production-grade remote key custody remain unimplemented, and the signed local-test license never unlocks a real erasure or flash operation: the native mutator remains fail-closed pending device-specific adapters and physical safety testing.
